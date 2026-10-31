@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, Sun, Moon, Radio } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -8,41 +8,62 @@ import Reveal from './Reveal';
 type Risk = 'low' | 'mid' | 'high';
 type Mode = 'day' | 'night' | 'live';
 
-interface Zone { id: string; x: number; y: number; risk: Risk; label: string; }
+// Updated interface to match your backend response
+interface ZonePrediction { 
+  zoneId: string; 
+  zoneName: string; 
+  score: number; 
+  risk: string; // The backend returns "low", "medium", or "high"
+}
 
-const zones: Record<Mode, Zone[]> = {
-  day: [
-    { id: 'z1', x: 22, y: 30, risk: 'low', label: 'Hazratganj' },
-    { id: 'z2', x: 48, y: 20, risk: 'low', label: 'Gomti Nagar' },
-    { id: 'z3', x: 68, y: 40, risk: 'mid', label: 'Charbagh' },
-    { id: 'z4', x: 30, y: 62, risk: 'low', label: 'Indira Nagar' },
-    { id: 'z5', x: 58, y: 68, risk: 'mid', label: 'Aminabad' },
-    { id: 'z6', x: 80, y: 75, risk: 'low', label: 'Alambagh' },
-  ],
-  night: [
-    { id: 'z1', x: 22, y: 30, risk: 'mid', label: 'Hazratganj' },
-    { id: 'z2', x: 48, y: 20, risk: 'low', label: 'Gomti Nagar' },
-    { id: 'z3', x: 68, y: 40, risk: 'high', label: 'Charbagh' },
-    { id: 'z4', x: 30, y: 62, risk: 'mid', label: 'Indira Nagar' },
-    { id: 'z5', x: 58, y: 68, risk: 'high', label: 'Aminabad' },
-    { id: 'z6', x: 80, y: 75, risk: 'mid', label: 'Alambagh' },
-  ],
-  live: [
-    { id: 'z1', x: 22, y: 30, risk: 'low', label: 'Hazratganj' },
-    { id: 'z2', x: 48, y: 20, risk: 'high', label: 'Gomti Nagar' },
-    { id: 'z3', x: 68, y: 40, risk: 'mid', label: 'Charbagh' },
-    { id: 'z4', x: 30, y: 62, risk: 'low', label: 'Indira Nagar' },
-    { id: 'z5', x: 58, y: 68, risk: 'mid', label: 'Aminabad' },
-    { id: 'z6', x: 80, y: 75, risk: 'high', label: 'Alambagh' },
-  ],
+// We need physical map coordinates for each zone ID to render them on your UI map
+const ZONE_COORDINATES: Record<string, { x: number; y: number }> = {
+  'z-hazratganj': { x: 22, y: 30 },
+  'z-gomtinagar': { x: 48, y: 20 },
+  'z-charbagh': { x: 68, y: 40 },
+  'z-indiranagar': { x: 30, y: 62 },
+  'z-aminabad': { x: 58, y: 68 },
+  'z-alambagh': { x: 80, y: 75 },
+  'z-hussainganj': { x: 45, y: 45 },
+  'z-aliganj': { x: 40, y: 80 }
 };
 
-const riskColor: Record<Risk, string> = { low: '#2ed573', mid: '#ffb020', high: '#ff4d4d' };
-const riskLabel: Record<Risk, string> = { low: 'Low risk', mid: 'Caution', high: 'High risk' };
+// Kept your original styling maps, adjusting "medium" to "mid" for your UI
+const riskColor: Record<string, string> = { low: '#2ed573', medium: '#ffb020', high: '#ff4d4d', mid: '#ffb020' };
+const riskLabel: Record<string, string> = { low: 'Low risk', medium: 'Caution', high: 'High risk', mid: 'Caution' };
 
 export default function HeatmapPreview() {
-  const [mode, setMode] = useState<Mode>('night');
-  const [hovered, setHovered] = useState<Zone | null>(null);
+  const [mode, setMode] = useState<Mode>('live');
+  const [hovered, setHovered] = useState<ZonePrediction | null>(null);
+  const [liveZones, setLiveZones] = useState<ZonePrediction[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Fetch real risk predictions from the backend
+  useEffect(() => {
+    const fetchPredictions = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/api/predict-risk', {
+          method: 'GET', // Make sure your backend route supports GET (like in the latest code)
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setLiveZones(data.predictions);
+        }
+      } catch (error) {
+        console.error("Failed to fetch heatmap data:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchPredictions();
+    
+    // Optional: Refresh data every 60 seconds
+    const intervalId = setInterval(fetchPredictions, 60000);
+    return () => clearInterval(intervalId);
+  }, []);
 
   return (
     <section className="bg-white px-6 py-24" id="map">
@@ -50,21 +71,15 @@ export default function HeatmapPreview() {
         <p className="text-xs font-bold tracking-widest text-gray-400">LIVE PREVIEW</p>
         <h2 className="mt-3 font-display text-3xl font-bold text-ink sm:text-4xl">See risk shift in real time.</h2>
         <p className="mt-4 text-sm leading-relaxed text-gray-500">
-          Toggle between day, night, and live to see how the heatmap changes as new reports come in.
+          The map currently shows live data pulled straight from the risk engine.
         </p>
       </Reveal>
 
       <Reveal delay={0.1} className="mx-auto mt-10 flex justify-center">
         <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)}>
           <TabsList className="border-gray-200 bg-gray-100">
-            <TabsTrigger value="day" className="data-[state=active]:text-ink text-gray-500">
-              <Sun className="h-3.5 w-3.5" /> Day
-            </TabsTrigger>
-            <TabsTrigger value="night" className="data-[state=active]:text-ink text-gray-500">
-              <Moon className="h-3.5 w-3.5" /> Night
-            </TabsTrigger>
             <TabsTrigger value="live" className="data-[state=active]:text-ink text-gray-500">
-              <Radio className="h-3.5 w-3.5" /> Live
+              <Radio className="h-3.5 w-3.5 mr-1" /> Live Engine Data
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -85,25 +100,31 @@ export default function HeatmapPreview() {
                 style={{ left: `${12 + i * 32}%`, top: `${10 + i * 12}%` }}>{l}</span>
             ))}
 
-            <AnimatePresence mode="wait">
-              <motion.div key={mode} className="absolute inset-0"
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.35 }}>
-                {zones[mode].map((z) => (
-                  <button key={z.id} onMouseEnter={() => setHovered(z)} onMouseLeave={() => setHovered(null)}
-                    className="group absolute -translate-x-1/2 -translate-y-1/2"
-                    style={{ left: `${z.x}%`, top: `${z.y}%` }}
-                    aria-label={`${z.label}: ${riskLabel[z.risk]}`}>
-                    <motion.span className="absolute -inset-6 rounded-full blur-xl"
-                      style={{ backgroundColor: riskColor[z.risk] }}
-                      animate={{ opacity: [0.3, 0.6, 0.3], scale: [1, 1.2, 1] }}
-                      transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }} />
-                    <motion.span className="relative block h-3 w-3 rounded-full ring-2 ring-ink"
-                      style={{ backgroundColor: riskColor[z.risk] }}
-                      whileHover={{ scale: 1.8 }} />
-                  </button>
-                ))}
-              </motion.div>
-            </AnimatePresence>
+            {!isLoading && (
+              <AnimatePresence mode="wait">
+                <motion.div key={mode} className="absolute inset-0"
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.35 }}>
+                  {liveZones.map((z) => {
+                    const coords = ZONE_COORDINATES[z.zoneId] || { x: 50, y: 50 }; // fallback to center
+                    
+                    return (
+                    <button key={z.zoneId} onMouseEnter={() => setHovered(z)} onMouseLeave={() => setHovered(null)}
+                      className="group absolute -translate-x-1/2 -translate-y-1/2"
+                      style={{ left: `${coords.x}%`, top: `${coords.y}%` }}
+                      aria-label={`${z.zoneName}: ${riskLabel[z.risk]}`}>
+                      <motion.span className="absolute -inset-6 rounded-full blur-xl"
+                        style={{ backgroundColor: riskColor[z.risk] }}
+                        animate={{ opacity: [0.3, 0.6, 0.3], scale: [1, 1.2, 1] }}
+                        transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }} />
+                      <motion.span className="relative block h-3 w-3 rounded-full ring-2 ring-ink"
+                        style={{ backgroundColor: riskColor[z.risk] }}
+                        whileHover={{ scale: 1.8 }} />
+                    </button>
+                    )
+                  })}
+                </motion.div>
+              </AnimatePresence>
+            )}
 
             <AnimatePresence>
               {hovered && (
@@ -111,7 +132,7 @@ export default function HeatmapPreview() {
                   className="absolute bottom-4 left-4 flex items-center gap-2.5 rounded-xl border border-white/10 bg-black/75 px-3.5 py-2.5 backdrop-blur-sm">
                   <MapPin className="h-4 w-4 text-white/60" />
                   <div>
-                    <p className="text-xs font-semibold text-white">{hovered.label}</p>
+                    <p className="text-xs font-semibold text-white">{hovered.zoneName} (Score: {hovered.score})</p>
                     <p className="text-[11px]" style={{ color: riskColor[hovered.risk] }}>{riskLabel[hovered.risk]}</p>
                   </div>
                 </motion.div>
@@ -119,12 +140,15 @@ export default function HeatmapPreview() {
             </AnimatePresence>
 
             <div className="absolute right-4 top-4 flex items-center gap-3 rounded-full border border-white/10 bg-black/60 px-3 py-1.5 font-mono text-[10px] text-white backdrop-blur-sm">
-              {(Object.entries(riskColor) as [Risk, string][]).map(([r, c]) => (
-                <span key={r} className="flex items-center gap-1">
-                  <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: c }} />
-                  {riskLabel[r]}
-                </span>
-              ))}
+              <span className="flex items-center gap-1">
+                <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: riskColor.low }} /> Low
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: riskColor.medium }} /> Caution
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: riskColor.high }} /> High
+              </span>
             </div>
           </div>
         </Card>

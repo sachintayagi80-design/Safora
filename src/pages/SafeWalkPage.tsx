@@ -12,8 +12,8 @@ export default function SafeWalkPage() {
   const { startSOS } = useSOS();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
+useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
     if (active && timeLeft > 0) {
       interval = setInterval(() => setTimeLeft(prev => prev - 1), 1000);
     } else if (active && timeLeft === 0) {

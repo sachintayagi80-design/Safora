@@ -233,17 +233,26 @@ export default function AppPage() {
 }
 
 function FeedRow({ incident, active, onClick }: { incident: Incident; active: boolean; onClick: () => void }) {
-  const meta = INCIDENT_TYPES.find((t) => t.value === incident.type)!;
+  // Add a fallback so it doesn't crash if the database has an unknown incident type
+  const meta = INCIDENT_TYPES.find((t) => t.value === incident.type) || { emoji: '🚨', label: incident.type || 'Alert' };
+  
+  // Also add fallbacks for risk color just in case a database entry is missing it
+  const riskColor = RISK_COLOR[incident.risk] || RISK_COLOR.low;
+
   return (
     <button onClick={onClick} className={`flex w-full items-start gap-3 border-b border-white/5 px-4 py-3 text-left transition-colors ${active ? 'bg-white/10' : 'hover:bg-white/5'}`}>
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm" style={{ backgroundColor: `${RISK_COLOR[incident.risk]}25` }}>{meta.emoji}</span>
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm" style={{ backgroundColor: `${riskColor}25` }}>
+        {meta.emoji}
+      </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-xs font-semibold text-white">{incident.title}</p>
+        <p className="truncate text-xs font-semibold text-white">{incident.title || meta.label}</p>
         <p className="mt-0.5 flex items-center gap-1 text-[11px] text-gray-500">
-          <MapPin className="h-3 w-3" /> {CITY_ZONES.find((z) => z.id === incident.zoneId)?.name} · {timeAgoLabel(incident.hoursAgo)}
+          <MapPin className="h-3 w-3" /> {CITY_ZONES.find((z) => z.id === incident.zoneId)?.name || 'Lucknow'} · {timeAgoLabel(incident.hoursAgo)}
         </p>
         <div className="mt-1.5 flex items-center gap-1.5">
-          <span className="rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase text-ink" style={{ backgroundColor: RISK_COLOR[incident.risk] }}>{incident.risk}</span>
+          <span className="rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase text-ink" style={{ backgroundColor: riskColor }}>
+            {incident.risk || 'low'}
+          </span>
           {incident.status === 'verified' && <span className="flex items-center gap-0.5 text-[9px] text-teal"><ShieldCheck className="h-2.5 w-2.5" /> Verified</span>}
         </div>
       </div>

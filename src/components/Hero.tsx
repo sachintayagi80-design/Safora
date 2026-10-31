@@ -1,11 +1,41 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { SignalHigh } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { phoneFeedItems } from '@/data/content';
+import { phoneFeedItems as dummyFeedItems } from '@/data/content';
 import PhoneFeedCard from './PhoneFeedCard';
 import { Button } from '@/components/ui/button';
 
 export default function Hero() {
+  const [feedItems, setFeedItems] = useState(dummyFeedItems);
+
+  useEffect(() => {
+    fetch('http://localhost:8000/api/incidents')
+      .then(res => res.json())
+      .then(data => {
+        if (data.incidents && data.incidents.length > 0) {
+          const liveFeed = data.incidents.map((inc: any, index: number) => ({
+            id: inc._id || `live-feed-${index}`,
+            // If hoursAgo is less than 1, show "Just now", otherwise format hours
+            time: inc.hoursAgo < 1 ? 'Just now' : `${Math.floor(inc.hoursAgo)}h ago`,
+            title: inc.type || 'Community Alert',
+            // Clean up the zoneId to look like a real location string
+            location: inc.zoneId ? inc.zoneId.replace('z-', '').charAt(0).toUpperCase() + inc.zoneId.slice(3) + ', Lucknow' : 'Lucknow',
+            distanceKm: parseFloat((Math.random() * 3 + 0.5).toFixed(1)),
+            scared: Math.floor(Math.random() * 300 + 50).toString() + (Math.random() > 0.8 ? 'k' : ''),
+            comments: Math.floor(Math.random() * 50 + 2).toString(),
+            // Mark as live if the incident happened in the last 2 hours
+            live: inc.hoursAgo <= 2,
+            description: inc.description
+          }));
+          
+          // Reverse so the newest items are at the top of the phone screen
+          setFeedItems(liveFeed.reverse());
+        }
+      })
+      .catch(err => console.error("Failed to fetch live hero feed:", err));
+  }, []);
+
   return (
     <section id="top" className="relative overflow-hidden bg-ink pt-32 pb-24">
       <div className="pointer-events-none absolute inset-0 opacity-40" aria-hidden="true">
@@ -39,7 +69,6 @@ export default function Hero() {
           </p>
           
           <div className="mt-3 flex flex-wrap gap-3">
-            
             <Button asChild variant="danger" size="lg">
               <Link to="/sos">🆘 SOS</Link>
             </Button>
@@ -59,7 +88,8 @@ export default function Hero() {
               </div>
               <p className="px-5 pb-3 pt-2 text-center text-[11px] font-bold tracking-widest text-gray-400">SAFORA FEED</p>
               <div className="flex max-h-[420px] flex-col gap-3 overflow-y-auto px-3 pb-5">
-                {phoneFeedItems.map((item, i) => (
+                {/* Now mapping over our dynamic `feedItems` instead of the static `phoneFeedItems` */}
+                {feedItems.map((item, i) => (
                   <motion.div key={item.id} initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.6 + i * 0.15 }}>
                     <PhoneFeedCard item={item} />
                   </motion.div>

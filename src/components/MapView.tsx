@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { GoogleMap, useJsApiLoader, OverlayView, Polyline, HeatmapLayer} from '@react-google-maps/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, Navigation } from 'lucide-react';
@@ -7,7 +7,7 @@ import { CITY_ZONES, INCIDENT_TYPES, RISK_COLOR, type Incident } from '@/data/in
 export interface RoutePoint { x: number; y: number; label: string }
 
 interface MapViewProps {
-  incidents: Incident[];
+  incidents: Incident[]; // This is now used as a fallback if the DB is empty
   height?: string;
   onMapClick?: (pos: { x: number; y: number }) => void;
   pin?: { x: number; y: number } | null;
@@ -18,8 +18,6 @@ interface MapViewProps {
   showHeatmap?: boolean;
 }
 
-// FIX 1: Properly type the libraries array and keep it outside the component 
-// to prevent infinite reloading loops.
 const LIBRARIES: ("visualization")[] = ['visualization'];
 
 const MAP_BOUNDS = { north: 26.89, south: 26.75, west: 80.85, east: 81.05 };
@@ -56,31 +54,65 @@ const darkMapStyle = [
 ];
 
 export default function MapView({
-  incidents, height = '100%', onMapClick, pin, route, selectedIncidentId, onSelectIncident, showZoneLabels = true, showHeatmap = false
+  incidents: propIncidents, height = '100%', onMapClick, pin, route, selectedIncidentId, onSelectIncident, showZoneLabels = true, showHeatmap = false
 }: MapViewProps) {
   
-  // FIX 2: Removed the extra `});` that was breaking your component scope.
-  // Added a fallback to empty string for .env to prevent TS string assignment errors.
+  const [dbIncidents, setDbIncidents] = useState<Incident[]>([]);
+
+  // Automatically fetch live incidents from MongoDB via FastAPI
+  useEffect(() => {
+    fetch('http://localhost:8000/api/incidents')
+      .then(res => res.json())
+      .then(data => {
+        if (data.incidents && data.incidents.length > 0) {
+          // Add physical map coordinates based on the zone so they appear correctly
+          const mappedIncidents = data.incidents.map((dbInc: any, index: number) => {
+            const zone = CITY_ZONES.find(z => z.id === dbInc.zoneId);
+            // Slight random offset so incidents in the same zone don't stack directly on top of each other
+            const offsetX = (Math.random() - 0.5) * 5;
+            const offsetY = (Math.random() - 0.5) * 5;
+            
+            return {
+              id: dbInc._id || `db-inc-${index}`,
+              type: dbInc.type || 'other',
+              risk: dbInc.risk || 'low',
+              zoneId: dbInc.zoneId,
+              x: dbInc.x || (zone ? zone.x + offsetX : 50),
+              y: dbInc.y || (zone ? zone.y + offsetY : 50),
+              description: dbInc.description,
+              timestamp: dbInc.timestamp
+            };
+          });
+          setDbIncidents(mappedIncidents);
+        }
+      })
+      .catch(err => console.error("Failed to fetch live map incidents:", err));
+  }, []);
+
+  // Use dynamic DB data if available, otherwise fall back to dummy props
+  const displayIncidents = dbIncidents.length > 0 ? dbIncidents : propIncidents;
+
   const { isLoaded, loadError } = useJsApiLoader({
     id: 'google-map-script',
-    // Paste the key directly in quotes here for a moment:
-    googleMapsApiKey: "AIzaSyDPSB2vQBBig0LBjiUyb6kKw6Q7ZrQYiHs", 
+    // Pulls from .env file for safety, falls back to your key if missing
+    googleMapsApiKey: (import.meta as any).env.VITE_GOOGLE_MAPS_API_KEY || "AIzaSyDPSB2vQBBig0LBjiUyb6kKw6Q7ZrQYiHs",
     version: '3.64',
     libraries: LIBRARIES,
   });
+  
   const [map, setMap] = useState<google.maps.Map | null>(null);
   const [hoveredZone, setHoveredZone] = useState<string | null>(null);
 
   const heatmapData = useMemo(() => {
     if (!isLoaded || !window.google) return [];
-    return incidents.map(inc => {
+    return displayIncidents.map(inc => {
       const pos = percentToLatLng(inc.x, inc.y);
       return {
         location: new window.google.maps.LatLng(pos.lat, pos.lng),
         weight: inc.risk === 'high' ? 3 : inc.risk === 'medium' ? 2 : 1
       };
     });
-  }, [incidents, isLoaded]);
+  }, [displayIncidents, isLoaded]);
 
   const onLoad = useCallback(function callback(map: google.maps.Map) {
     setMap(map);
@@ -117,7 +149,7 @@ export default function MapView({
       >
         {/* Zone Halos & Labels */}
         {CITY_ZONES.map((z) => {
-          const zoneIncidents = incidents.filter((i) => i.zoneId === z.id);
+          const zoneIncidents = displayIncidents.filter((i) => i.zoneId === z.id);
           const highCount = zoneIncidents.filter((i) => i.risk === 'high').length;
           const risk = highCount >= 3 ? 'high' : highCount >= 1 ? 'medium' : z.baseRisk;
           
@@ -134,7 +166,7 @@ export default function MapView({
               >
                 <motion.div
                   className="rounded-full blur-2xl"
-                  style={{ width: 90, height: 90, backgroundColor: RISK_COLOR[risk], opacity: 0.16 }}
+                  style={{ width: 90, height: 90, backgroundColor: RISK_COLOR[risk as keyof typeof RISK_COLOR] || RISK_COLOR.low, opacity: 0.16 }}
                   animate={{ opacity: [0.1, 0.22, 0.1] }} transition={{ duration: 3, repeat: Infinity }}
                 />
                 {showZoneLabels && (
@@ -189,9 +221,12 @@ export default function MapView({
           />
         ) : (
           <AnimatePresence>
-            {incidents.map((inc) => {
-              const meta = INCIDENT_TYPES.find((t) => t.value === inc.type)!;
+            {displayIncidents.map((inc) => {
+              // Ensure we have a valid type fallback if the DB type string doesn't perfectly match the frontend enum
+              const meta = INCIDENT_TYPES.find((t) => t.value.toLowerCase() === inc.type.toLowerCase()) || INCIDENT_TYPES[0];
               const selected = inc.id === selectedIncidentId;
+              const riskColor = RISK_COLOR[inc.risk as keyof typeof RISK_COLOR] || RISK_COLOR.low;
+              
               return (
                 <OverlayView key={inc.id} position={percentToLatLng(inc.x, inc.y)} mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}>
                   <motion.button
@@ -201,12 +236,12 @@ export default function MapView({
                   >
                     <motion.span
                       className="absolute -inset-2.5 rounded-full"
-                      style={{ backgroundColor: RISK_COLOR[inc.risk] }}
+                      style={{ backgroundColor: riskColor }}
                       animate={{ opacity: [0.35, 0.05, 0.35] }} transition={{ duration: 2, repeat: Infinity }}
                     />
                     <span
                       className={`relative flex h-5 w-5 items-center justify-center rounded-full text-[10px] ring-2 transition-transform ${selected ? 'scale-125 ring-white' : 'ring-[#182427]/60 hover:scale-110'}`}
-                      style={{ backgroundColor: RISK_COLOR[inc.risk] }}
+                      style={{ backgroundColor: riskColor }}
                     >
                       {meta.emoji}
                     </span>

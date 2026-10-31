@@ -1,5 +1,5 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
-import { SEED_INCIDENTS, type Incident, type IncidentType, type RiskLevel } from '@/data/incidents';
+import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { type Incident, type IncidentType, type RiskLevel } from '@/data/incidents';
 
 export interface NewReportInput {
   type: IncidentType;
@@ -13,7 +13,7 @@ export interface NewReportInput {
 interface ReportsContextValue {
   incidents: Incident[];
   myReports: Incident[];
-  addReport: (r: NewReportInput) => Incident;
+  addReport: (r: NewReportInput) => Promise<Incident>;
   trustScore: number;
   trustLevel: 'New' | 'Trusted' | 'Verified Guardian' | 'Community Hero';
 }
@@ -23,12 +23,43 @@ const ReportsContext = createContext<ReportsContextValue | undefined>(undefined)
 const CURRENT_USER_LABEL = 'You';
 
 export function ReportsProvider({ children }: { children: ReactNode }) {
-  const [incidents, setIncidents] = useState<Incident[]>(SEED_INCIDENTS);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
 
-  function addReport(r: NewReportInput): Incident {
+  // 1. Fetch real incidents from MongoDB on app load
+  useEffect(() => {
+    fetch('http://localhost:8000/api/incidents')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.incidents) {
+          // Format the DB incidents to match the React frontend interface
+          const mapped = data.incidents.map((dbInc: any, i: number) => ({
+            id: dbInc._id || `db-inc-${i}`,
+            type: dbInc.type,
+            zoneId: dbInc.zoneId,
+            x: dbInc.x || 50,
+            y: dbInc.y || 50,
+            risk: dbInc.risk || 'low',
+            title: dbInc.description?.slice(0, 60) || dbInc.type,
+            description: dbInc.description || '',
+            status: dbInc.status || 'unverified',
+            reportedBy: dbInc.reportedBy || 'Anonymous',
+            hoursAgo: dbInc.hoursAgo || 0,
+            hourOfDay: dbInc.hourOfDay || new Date().getHours(),
+            photoDataUrl: dbInc.photoDataUrl,
+          }));
+          setIncidents(mapped);
+        }
+      })
+      .catch((err) => console.error("Failed to load incidents:", err));
+  }, []);
+
+  // 2. Save new reports to the MongoDB backend
+  async function addReport(r: NewReportInput): Promise<Incident> {
     const risk: RiskLevel = r.type === 'assault' || r.type === 'harassment' || r.type === 'fire' ? 'high' : 'medium';
-    const incident: Incident = {
-      id: `inc-user-${Date.now()}`,
+    
+    // Strictly match your Incident interface here so TypeScript is happy
+    const newIncident: Incident = {
+      id: `inc-user-${Date.now()}`, // Temporary ID
       type: r.type,
       zoneId: r.zoneId,
       x: r.x,
@@ -42,14 +73,38 @@ export function ReportsProvider({ children }: { children: ReactNode }) {
       hourOfDay: new Date().getHours(),
       photoDataUrl: r.photoDataUrl,
     };
-    setIncidents((prev) => [incident, ...prev]);
-    return incident;
+
+    try {
+      // POST the new report to your FastAPI backend, adding the timestamp just for the DB
+      const response = await fetch('http://localhost:8000/api/incidents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...newIncident, timestamp: new Date().toISOString() })
+      });
+      
+      const newDbIncident = await response.json();
+      
+      // If the database gives us a real MongoDB _id, update the incident ID
+      if (newDbIncident._id) {
+        newIncident.id = newDbIncident._id;
+      }
+      
+      // Update local state so it appears on the map instantly
+      setIncidents((prev) => [newIncident, ...prev]);
+      return newIncident;
+      
+    } catch (error) {
+      console.error("Failed to save report to database:", error);
+      // Fallback: add to local state even if DB fails so UI doesn't break
+      setIncidents((prev) => [newIncident, ...prev]);
+      return newIncident;
+    }
   }
 
   const myReports = incidents.filter((i) => i.reportedBy === CURRENT_USER_LABEL);
   const verifiedCount = myReports.filter((r) => r.status === 'verified' || r.status === 'resolved').length;
 
-  // Trust score: base 40 + points per submitted report + bonus for verified ones, capped at 100
+  // Trust score calculation
   const trustScore = Math.min(100, 40 + myReports.length * 6 + verifiedCount * 9);
   const trustLevel: ReportsContextValue['trustLevel'] =
     trustScore >= 90 ? 'Community Hero' : trustScore >= 70 ? 'Verified Guardian' : trustScore >= 50 ? 'Trusted' : 'New';

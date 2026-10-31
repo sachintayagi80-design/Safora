@@ -31,6 +31,7 @@ import FeaturesPage from '@/pages/marketing/FeaturesPage';
 import AboutPage from '@/pages/marketing/AboutPage';
 import SupportPage from '@/pages/marketing/SupportPage';
 import BlogPage from '@/pages/marketing/BlogPage';
+import AIChatbot from './components/AIChatbot';
 
 function HomePage() {
   return (
@@ -47,6 +48,7 @@ function HomePage() {
       <FAQ />
       <FinalCTA />
       <Footer />
+      
     </div>
   );
 }
@@ -77,6 +79,7 @@ export default function App() {
               <Route path="*" element={<HomePage />} />
             </Routes>
             <FloatingSOS />
+            <AIChatbot/>
           </ReportsProvider>
         </SOSProvider>
       </SettingsProvider>

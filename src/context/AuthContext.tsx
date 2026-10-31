@@ -1,4 +1,12 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut as firebaseSignOut, 
+  onAuthStateChanged, 
+  updateProfile 
+} from 'firebase/auth';
+import { auth } from '../firebaseconfig'; // Adjust this path if your config file is in a different folder
 
 export type UserRole = 'resident' | 'business' | 'law-enforcement';
 
@@ -19,38 +27,70 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-// ─── NOTE ────────────────────────────────────────────────────────────────────
-// This is a local mock store. No real Firebase calls happen here.
-// To wire Firebase: replace signIn/signUp/signOut with real Firebase Auth calls
-// (signInWithEmailAndPassword, createUserWithEmailAndPassword, firebaseSignOut).
-// The shape of AppUser and the context API stay the same — callers don't change.
-// ─────────────────────────────────────────────────────────────────────────────
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // Start loading true to wait for Firebase check
 
-  async function signIn(email: string, _password: string) {
+  // ─── 1. FIREBASE AUTH STATE LISTENER (Solves the reload bug) ─────────
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        setUser({
+          uid: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
+          role: 'resident', // Note: See note below about roles
+        });
+      } else {
+        setUser(null);
+      }
+      setLoading(false); // Stop loading once Firebase gives us an answer
+    });
+
+    return () => unsubscribe(); // Cleanup listener on unmount
+  }, []);
+
+  // ─── 2. FIREBASE SIGN IN ─────────────────────────────────────────────
+  async function signIn(email: string, password: string) {
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 800)); // simulate network
-    setUser({ uid: `uid-${Date.now()}`, email, displayName: email.split('@')[0], role: 'resident' });
-    setLoading(false);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      // We don't need to manually setUser here because onAuthStateChanged handles it!
+    } catch (error) {
+      console.error("Login failed:", error);
+      setLoading(false);
+      throw error; // Throw error so your LoginPage can display an alert
+    }
   }
 
-  async function signUp(email: string, _password: string, displayName: string, role: UserRole) {
+  // ─── 3. FIREBASE SIGN UP ─────────────────────────────────────────────
+  async function signUp(email: string, password: string, displayName: string, role: UserRole) {
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 800));
-    setUser({ uid: `uid-${Date.now()}`, email, displayName, role });
-    setLoading(false);
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      
+      // Update the user's name in Firebase immediately after creation
+      await updateProfile(userCredential.user, { displayName: displayName });
+
+      // TODO for SAFORA later: Save the `role` to a Firestore database here
+      // (Firebase Auth only stores email/password natively, not custom roles)
+
+    } catch (error) {
+      console.error("Signup failed:", error);
+      setLoading(false);
+      throw error;
+    }
   }
 
+  // ─── 4. FIREBASE SIGN OUT ────────────────────────────────────────────
   function signOut() {
-    setUser(null);
+    firebaseSignOut(auth);
   }
 
   return (
     <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut }}>
-      {children}
+      {/* Don't render the app until Firebase finishes checking the login status */}
+      {!loading && children} 
     </AuthContext.Provider>
   );
 }

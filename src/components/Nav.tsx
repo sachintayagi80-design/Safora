@@ -72,7 +72,7 @@ export default function Nav() {
           ) : (
             <>
               <Button asChild variant="outline" size="sm"><Link to="/login">LOG IN</Link></Button>
-              <Button asChild size="sm" className="bg-bluebrand hover:bg-bluebrand/90"><Link to="/login?mode=signup">GET APP</Link></Button>
+              {/* <Button asChild size="sm" className="bg-bluebrand hover:bg-bluebrand/90"><Link to="/login?mode=signup">GET APP</Link></Button> */}
             </>
           )}
         </div>

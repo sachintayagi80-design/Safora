@@ -1,15 +1,34 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Trophy, Star, ShieldCheck, TrendingUp } from 'lucide-react';
-
-const LEADERS = [
-  { rank: 1, name: 'A. Sharma', score: 940, level: 'Community Hero', reports: 42, color: '#ffb020' },
-  { rank: 2, name: 'P. Gupta', score: 820, level: 'Verified Guardian', reports: 31, color: '#3b82f6' },
-  { rank: 3, name: 'R. Verma', score: 710, level: 'Verified Guardian', reports: 24, color: '#3b82f6' },
-  { rank: 4, name: 'S. Singh', score: 650, level: 'Trusted', reports: 18, color: '#1fc7c7' },
-  { rank: 5, name: 'Anonymous', score: 540, level: 'Trusted', reports: 15, color: '#1fc7c7' },
-];
+import { Trophy, Star, ShieldCheck } from 'lucide-react';
 
 export default function LeaderboardPage() {
+  const [leaders, setLeaders] = useState<any[]>([]);
+
+  // Fetch the leaderboard from MongoDB on load
+  useEffect(() => {
+    const fetchLeaderboard = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/api/leaderboard?limit=10');
+        if (response.ok) {
+          const data = await response.json();
+          // The backend already sorts by trustScore, we just need to add the rank number
+          const rankedData = data.leaderboard.map((user: any, index: number) => ({
+            ...user,
+            rank: index + 1,
+            // Assign colors based on rank/level to keep your UI looking nice
+            color: index === 0 ? '#ffb020' : index <= 2 ? '#3b82f6' : '#1fc7c7'
+          }));
+          setLeaders(rankedData);
+        }
+      } catch (error) {
+        console.error("Failed to load leaderboard:", error);
+      }
+    };
+
+    fetchLeaderboard();
+  }, []);
+
   return (
     <div className="min-h-screen bg-ink px-4 pt-28 pb-16 md:px-8 flex justify-center">
       <div className="max-w-3xl w-full">
@@ -30,7 +49,7 @@ export default function LeaderboardPage() {
           </div>
           
           <div className="flex flex-col">
-            {LEADERS.map((l, i) => (
+            {leaders.length > 0 ? leaders.map((l, i) => (
               <motion.div 
                 key={l.rank} 
                 initial={{ opacity: 0, x: -20 }} 
@@ -45,19 +64,23 @@ export default function LeaderboardPage() {
                 </div>
                 <div className="col-span-5">
                   <div className="font-bold text-white text-sm flex items-center gap-2">
-                    {l.name}
+                    {l.residentName || l.name}
                     {l.rank <= 3 && <Star className="h-3 w-3 text-amber fill-amber" />}
                   </div>
-                  <div className="text-[10px] uppercase font-bold tracking-wider mt-1" style={{ color: l.color }}>{l.level}</div>
+                  <div className="text-[10px] uppercase font-bold tracking-wider mt-1" style={{ color: l.color }}>{l.badge || l.level}</div>
                 </div>
                 <div className="col-span-2 text-right font-mono text-sm text-gray-300">
-                  {l.reports}
+                  {l.reports || 0}
                 </div>
                 <div className="col-span-3 text-right flex flex-col items-end">
-                  <span className="font-display font-bold text-lg" style={{ color: l.color }}>{l.score}</span>
+                  <span className="font-display font-bold text-lg" style={{ color: l.color }}>{l.trustScore || 0}</span>
                 </div>
               </motion.div>
-            ))}
+            )) : (
+              <div className="px-6 py-10 text-center text-gray-500 text-sm">
+                No users found. Start verifying reports to get on the leaderboard!
+              </div>
+            )}
           </div>
         </div>
         
